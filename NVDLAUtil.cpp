@@ -52,18 +52,15 @@ public:
     void print_interrupt(const std::string& vp_line) {
         if(vp_line.find("Cacc") != std::string::npos) {
             // CACC interrupt is reported two times. Need "CACC" instead of "Cacc"
-            // printf("# skipping a Cacc interrupt\n");
+            if(print_intr_flag) printf("# skipping a Cacc interrupt\n");
             return;
         }
 
         if(print_intr_flag) {
             if(print_intr_flag) {
                 if(!is_interrupt_cleared) {
-                    //printf("write_reg 0xffff0003 0xffffffff\t\t\t#NVDLA_GLB.S_INTR_STATUS_0\n"
-                    //       "read_reg 0xffff0003 0xffffffff 0x0\t\t#NVDLA_GLB.S_INTR_STATUS_0\nwait\t\t\t\t\t\t# (%s)\n",
-                    //       vp_line.c_str());
-                    printf("write_reg 0xffff0003 0xffffffff\t\t\t#NVDLA_GLB.S_INTR_STATUS_0\nwait\t\t\t\t\t\t# (%s)\n",
-                           vp_line.c_str());
+                    printf("write_reg 0xffff0003 0xffffffff\t\t\t#NVDLA_GLB.S_INTR_STATUS_0\n"
+                           "read_reg 0xffff0003 0x00000000 0x0\t\t#NVDLA_GLB.S_INTR_STATUS_0\nwait\t\t\t\t\t\t# (%s)\n", vp_line.c_str());
                 } else {
                     printf("wait\t\t\t\t\t\t# (%s)\n", vp_line.c_str());
                 }
@@ -125,7 +122,7 @@ public:
                             printf("read_reg 0xffff0003 0xffffffff 0x%08x\t#0x000c\n"\
                                    "write_reg 0xffff0003 0x%08x\t\t\t#0x000c\n", intr_mgr->try_clear_intr_val, data);   // clear interrupt with the original data
                         else
-                            printf("write_reg 0xffff0003 0xffffffff\t\t\t#0x000c, added by advanced interrupt handling\n");   // clear interrupt with a universal flag
+                            printf("write_reg 0xffff0003 0xffffffff\t\t\t#0x000c, added by advanced interrupt handling, original 0x%08x\n", intr_mgr->try_clear_intr_val);   // clear interrupt with a universal flag
                     }
 
 
