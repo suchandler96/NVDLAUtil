@@ -14,7 +14,7 @@ if __name__ == '__main__':
 
     fig = plt.figure()
     ax = fig.gca()
-    plt.scatter(x_coords, addresses, s=2)
+    plt.scatter(x_coords, addresses, s=1)
 
     ylabels = map(lambda t: '0x%08x' % int(t), ax.get_yticks())
     ax.set_yticklabels(ylabels)
