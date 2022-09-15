@@ -8,11 +8,15 @@ pivot_addr_reg_book = ["0x5034", "0xb048", "0xc01c"]
 addr_reg_book = [0x5034, 0x503c, 0x507c, 0xa02c, 0xa044, 0xb048, 0xc01c, 0xd070]
 corr_map_table = {0x5000: [0x5000, 0x6000], 0xb000: [0xa000, 0xb000], 0xc000: [0xc000, 0xd000]}
 
+data_addr_regs = [0x5034, 0xa044, 0xb048, 0xc01c, 0xd070]
+weight_addr_regs = [0x507c, 0xa02c]
 input_addr_regs = [0x5034, 0x507c, 0xa02c, 0xa044, 0xc01c]
-# omitting 0x503c because we assume it will always be the same with 0x5034
+# omitting 0x503c because we assume it will always be the same as 0x5034
 
 output_addr_regs = [0xb048, 0xd070]
 reg_to_neglect = [0x500c, 0x5010, 0x6008, 0xa008, 0xb038]
+
+match_dp_ans = [0, None, None]
 
 
 class TxnSegment:
@@ -25,7 +29,38 @@ class TxnSegment:
         self.other_reg_mapping = {}
         self.core_line_num = core_line_num
         self.file_name = file_name
-        self.matched_target = None  # the pointer to its matched txn segment in the unpartitioned txn file
+        self.match_candidates = []   # the indices to its possible matched txn segments in the unpartitioned txn file
+        self.matched_target = None  # the index to its matched target txn segment
+
+    def desc_str(self):
+        return self.file_name + " line " + str(self.core_line_num) + " (" + str(hex(self.core_reg)) + " = " +\
+               str(hex(self.core_reg_val)) + ")"
+
+
+class TxnAddrDesc:
+    def __init__(self, addr):
+        self.addr = addr
+        self.length = None
+        self.is_weight = None
+        self.txn_seg_ptrs = []
+        self.io_type = None     # unknown: 0; input: 1; output: 2
+        self.suggested_match_addr = None
+        self.peer_desc_list = []
+
+    def add_txn_seg_ptr(self, segment_ptr):
+        if segment_ptr not in self.txn_seg_ptrs:
+            self.txn_seg_ptrs.append(segment_ptr)
+
+            for key, value in segment_ptr.addr_reg_mapping.items():
+                if value == self.addr:
+                    if key in data_addr_regs:
+                        assert ((not self.is_weight) or (self.is_weight is None))
+                        self.is_weight = False
+                        self.io_type = 0
+
+                    if key in weight_addr_regs:
+                        assert (self.is_weight or (self.is_weight is None))
+                        self.is_weight = True
 
 
 class AddrUsageDesc:
@@ -136,19 +171,20 @@ def get_words(file_name):
     return words
 
 
-def match_txn_segment_in_list(txn_segment, to_be_compared_segments, matched_tags):
-    first_matched_found = False
+def match_txn_segment_candidates_in_list(txn_segment, to_be_compared_segments):
     txn_segment_str = txn_segment.file_name + " line " + str(txn_segment.core_line_num) + " (" + \
                       str(hex(txn_segment.core_reg)) + " = " + str(hex(txn_segment.core_reg_val)) + ")"
 
     for (i, potential_seg) in enumerate(to_be_compared_segments):
         if txn_segment.other_reg_mapping == potential_seg.other_reg_mapping and \
                 len(txn_segment.addr_reg_mapping) == len(potential_seg.addr_reg_mapping):
-
+            txn_segment.match_candidates.append(i)
+            # if uncomment lines below, it will match the txn_segment with the first available candidate seen
+            '''
             print(txn_segment_str + " potentially matches " + potential_seg.file_name +
                   " line " + str(potential_seg.core_line_num) + " (" + str(hex(potential_seg.core_reg)) + " = " +
                   str(hex(potential_seg.core_reg_val)) + ")\n")
-
+            
             if first_matched_found or matched_tags[i]:
                 continue
 
@@ -159,10 +195,104 @@ def match_txn_segment_in_list(txn_segment, to_be_compared_segments, matched_tags
                   str(hex(potential_seg.core_reg_val)) + ")\n***************\n")
 
             txn_segment.matched_target = potential_seg
-
+            '''
+    '''
     if not first_matched_found:
-        print(txn_segment_str + " does not match anything, abort...")
+        print(txn_segment_str + " does not match anything...")
         # exit(1)
+    '''
+
+
+def match_dp(txn_segment_lists, txn_to_explore_pos, to_be_compared_segments, matched_tags, existing_addr_mappings):
+    if txn_to_explore_pos[0] == len(txn_segment_lists):
+        # recursion base
+        # count matched src_segments
+        matched_src_segments = 0
+        for tag in matched_tags:
+            if tag:
+                matched_src_segments += 1
+
+        if matched_src_segments < match_dp_ans[0]:
+            # not as good as previously explored answer
+            return
+        print("Matched segments: from " + str(match_dp_ans[0]) + " to " + str(matched_src_segments))
+
+        target_lists = []
+        for txn_segment_list in txn_segment_lists:
+            target_list = []
+            for segment in txn_segment_list:
+                target_list.append(segment.matched_target)
+            target_lists.append(target_lists)
+        '''
+        for txn_segment_list in txn_segment_lists:
+            for txn_segment in txn_segment_list:
+                if txn_segment.matched_target is not None:
+                    print("MATCH: " + txn_segment.desc_str() + " WITH " +
+                          to_be_compared_segments[txn_segment.matched_target].desc_str() + "\n")
+                else:
+                    if len(txn_segment.match_candidates) == 0:
+                        print(txn_segment.desc_str() + " doesn't match any src txn segments because NO CANDIDATES\n")
+                    else:
+                        print(txn_segment.desc_str() + " doesn't match any src txn segments because NOT SUITABLE\n")
+        '''
+        to_return_mappings = []
+        for stage_id, mapping in enumerate(existing_addr_mappings):
+            to_return_mappings.append(dict(mapping))
+            for key, value in mapping.items():
+                print("stage " + str(stage_id) + ": " + str(hex(key)) + "->" + str(hex(value)))
+        match_dp_ans[0] = matched_src_segments
+        match_dp_ans[1] = target_lists
+        match_dp_ans[2] = to_return_mappings
+        return
+
+    segment = txn_segment_lists[txn_to_explore_pos[0]][txn_to_explore_pos[1]]
+    if len(segment.match_candidates) != 0:
+        for candidate_id in segment.match_candidates:
+            if matched_tags[candidate_id]:
+                continue
+
+            new_addr_mappings = {}
+
+            # check whether this mapping agrees with those in existing_addr_mapping
+            is_valid_mapping = True
+            for reg, reg_val in segment.addr_reg_mapping.items():
+                target_reg_val = to_be_compared_segments[candidate_id].addr_reg_mapping[reg]
+
+                if reg_val not in existing_addr_mappings[txn_to_explore_pos[0]]:
+                    new_addr_mappings[reg_val] = target_reg_val
+                else:
+                    if existing_addr_mappings[txn_to_explore_pos[0]][reg_val] != target_reg_val:
+                        # this mapping is not coherent with previous ones, try another candidate
+                        is_valid_mapping = False
+                        break
+                    # else the addr mapping is coherent with previous ones
+
+            if is_valid_mapping:
+                # add the newly added mappings
+                for new_addr, new_mapped_address in new_addr_mappings.items():
+                    existing_addr_mappings[txn_to_explore_pos[0]][new_addr] = new_mapped_address
+
+                segment.matched_target = candidate_id
+                matched_tags[candidate_id] = True
+                next_pos = [txn_to_explore_pos[0], txn_to_explore_pos[1] + 1]
+                if next_pos[1] == len(txn_segment_lists[txn_to_explore_pos[0]]):
+                    next_pos = [txn_to_explore_pos[0] + 1, 0]
+
+                match_dp(txn_segment_lists, next_pos, to_be_compared_segments, matched_tags, existing_addr_mappings)
+                #if answer is not None:      # report the first found answer
+                    #return answer
+
+                # not returning means this candidate is not ok, clean up the changed variables
+                segment.matched_target = None
+                matched_tags[candidate_id] = False
+                for key in new_addr_mappings:
+                    existing_addr_mappings[txn_to_explore_pos[0]].pop(key)
+
+    # this segment is not matching any candidates (or no candidates at all). skip this segment
+    next_pos = [txn_to_explore_pos[0], txn_to_explore_pos[1] + 1]
+    if next_pos[1] == len(txn_segment_lists[txn_to_explore_pos[0]]):
+        next_pos = [txn_to_explore_pos[0] + 1, 0]
+    match_dp(txn_segment_lists, next_pos, to_be_compared_segments, matched_tags, existing_addr_mappings)
 
 
 def match_lists_with_list(txn_segment_lists, to_be_compared_segments):
@@ -178,9 +308,15 @@ def match_lists_with_list(txn_segment_lists, to_be_compared_segments):
     else:
         print("number of txns match")
 
+    # find all candidates for each txn_segment
     for txn_segment_list in txn_segment_lists:
         for txn_segment in txn_segment_list:
-            match_txn_segment_in_list(txn_segment, to_be_compared_segments, matched_tags)
+            match_txn_segment_candidates_in_list(txn_segment, to_be_compared_segments)
+
+    # explore possible matching with DP
+    # can add knowledge from mem trace matching here
+    existing_addr_mappings = [dict() for _ in range(len(txn_segment_lists))]
+    match_dp(txn_segment_lists, [0, 0], to_be_compared_segments, matched_tags, existing_addr_mappings)
 
     # check matched_tags whether all txn_segments have been mapped
     for i in range(len(to_be_compared_segments)):

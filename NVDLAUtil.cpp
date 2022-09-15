@@ -24,12 +24,13 @@ public:
     AXI_Txn(int _print_rd, int _print_wr) : print_rd_flag(_print_rd), print_wr_flag(_print_wr) {}
 
     void print_axi_txn() const {
-        if(is_write) {
-            if(print_wr_flag)
-                printf("%lx\n", address);
-        } else {
-            if(print_rd_flag)
-                printf("%lx\n", address);
+        if(print_rd_flag && print_wr_flag) {
+            if(is_write) printf("w %lx\n", address);
+            else printf("r %lx\n", address);
+        } else if(print_wr_flag && is_write) {
+            printf("%lx\n", address);
+        } else if(print_rd_flag && !is_write) {
+            printf("%lx", address);
         }
     }
 
