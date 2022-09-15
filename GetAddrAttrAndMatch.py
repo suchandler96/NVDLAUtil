@@ -1,6 +1,6 @@
 import sys
 import os
-from MatchPipelineAddr import *
+from TxnSegment import *
 
 
 def get_input_addresses(addr_log):
@@ -228,6 +228,31 @@ def main():
             print("addr: " + str(hex(addr)) + "\nlength: " + str(hex(addr_desc.length)) + "\nis_weight: " +
                   str(addr_desc.is_weight) + "\nio_type: " + str(addr_desc.io_type) + "\nsuggested_match_addr: " +
                   str(hex(addr_desc.suggested_match_addr)) + "\n")
+
+    # output mapping result to new txn files, can be commented if one doesn't want it
+    for i in range(2, len(sys.argv)):
+        txn_path = os.popen("ls " + os.path.join(sys.argv[i], "*_raw_input.txn")).read().strip()
+        new_txn_path = txn_path.replace("raw_input", "matched_input")
+
+        with open(txn_path) as fp:
+            lines = fp.readlines()
+
+        new_lines = []
+        for line in lines:
+            if "write_reg" in line:
+                stripped_line = line.strip()
+                tmp_words = re.split(r'[ \t\s]\s*', stripped_line)
+                tmp_words[-1] = tmp_words[-1].strip('#')
+                if int(tmp_words[-1], 16) in addr_reg_list:
+                    addr = int(tmp_words[-2], 16)
+                    assert addr in suggested_addr_mappings
+                    new_lines.append(line.replace(tmp_words[-2], str(hex(suggested_addr_mappings[addr]))))
+                    continue
+
+            new_lines.append(line)
+
+        with open(new_txn_path, 'w') as fp:
+            fp.writelines(new_lines)
 
 
 if __name__ == "__main__":
