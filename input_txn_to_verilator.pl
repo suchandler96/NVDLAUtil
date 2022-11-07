@@ -9,13 +9,15 @@ my $read_reg_poll_retries = 50000;
 
 # Creating a hash for the above - command - hex val
 my %command_hash = (
-    'write_reg' => '00',
-    'read_reg'  => '01',
-    'write_mem' => '02',
-    'read_mem'  => '03',
-    'load_mem'  => '04',
-    'dump_mem'  => '05',
-    'wait'      => '06',
+    'write_reg' => '02',
+    'read_reg'  => '03',
+    # 'write_mem' => '02',
+    # 'read_mem'  => '03',
+    'load_mem'  => '05',
+    'dump_mem'  => '04',
+    'wait'      => '01',
+    'until'     => '06',
+    'reset'     => '07'
 );
 
 
@@ -81,18 +83,7 @@ while(<$inf>)
 
     if ($values[0] =~ /wait/) {
       print $ouf pack("C", 1);
-    }
-
-    if ($values[0] =~ /until/) {
-      if($size != 3) { die "\nERROR: in write_reg command: $input_line\n" };
-
-      my $addr = $values[1];
-      my $data = $values[2];
-
-      print $ouf pack("CLL", 6, hex($addr), hex($data));
-    }
-
-    elsif($values[0] =~ /write_reg/) {
+    } elsif($values[0] =~ /write_reg/) {
       if($size != 3) { die "\nERROR: in write_reg command: $input_line\n" };
 
       # For CSB, top 16 bits are misc, lower 16 are addr
@@ -165,6 +156,18 @@ while(<$inf>)
       if ($values[0] =~ /dump_mem/) {
        print $ouf pack("L", length($mem_in)) . $mem_in;
       }
+    } elsif ($values[0] =~ /until/) {
+      if($size != 3) { die "\nERROR: in until command: $input_line\n" };
+
+      my $addr = $values[1];
+      my $data = $values[2];
+
+      print $ouf pack("CLL", 6, hex($addr), hex($data));
+
+    } elsif ($values[0] =~ /reset/) {
+      if($size != 1) { die "\nERROR: in reset command: $input_line\n" };
+      print $ouf pack("C", 7);
+
     }
 #print " HexString: $hex_string" . "\n";
 #my @split_hex = ($hex_string =~ m/../g);

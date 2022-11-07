@@ -289,6 +289,9 @@ def main():
                         help="to output the mapped addresses to a new txn file under the original directories")
     parser.add_argument("--output-rd-only-var-log", action="store_true", default=False,
                         help="to output read-only variables together with lengths, ranked by their time of issue")
+    # todo: life cycle analysis of variables (if analyzing all variables is too difficult, at least read-only)
+    # todo: remap all variables
+    # todo: modify NVDLA compiler, disable some options (addr reuse, operator fusion, ...)
     options = parser.parse_args()
 
     txn_addr_book_list = []
