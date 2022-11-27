@@ -1,8 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import math
-import copy
 
 from pytorch2caffe import pytorch2caffe
 
@@ -29,6 +26,7 @@ class DoubleMatmulWithConv(nn.Module):
         return self.conv2(self.conv1(x))
 
 
+# temporarily useless
 class QKVNets(nn.Module):
     def __init__(self, num_tokens, head_dimension):
         super(QKVNets, self).__init__()
@@ -40,10 +38,22 @@ class QKVNets(nn.Module):
         return self.q_net(x) + self.k_net(x) + self.v_net(x)
 
 
-def convert_fc_with_conv(num_tokens=64, head_dim=128, name="fc_layer_conv"):
-    fc_layer = FCWithConv(num_tokens, head_dim, head_dim, use_bias=True)
+class PointWiseNet(nn.Module):
+    def __init__(self, dim1, dim2, dim3, dim4):
+        super(PointWiseNet, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=dim2, out_channels=dim3, kernel_size=(1, 1), bias=True)
+        self.conv2 = nn.Conv2d(in_channels=dim3, out_channels=dim4, kernel_size=(1, 1), bias=True)
+
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        return self.conv2(self.relu(self.conv1(x)))
+
+
+def convert_fc_with_conv(seq_len=64, head_dim=128, name="fc_layer_conv"):
+    fc_layer = FCWithConv(seq_len, head_dim, head_dim, use_bias=True)
     fc_layer.eval()
-    dummy_input = torch.ones([1, head_dim, 1, num_tokens])
+    dummy_input = torch.ones([1, head_dim, 1, seq_len])
 
     pytorch2caffe.trans_net(fc_layer, dummy_input, name)
     pytorch2caffe.save_prototxt('{}.prototxt'.format(name))
@@ -70,5 +80,22 @@ def convert_double_matmul_with_conv(seq_len=64, head_dim=128, name="double_matmu
     pytorch2caffe.save_caffemodel('{}.caffemodel'.format(name))
 
 
+def convert_point_wise_feed_forward_with_conv(seq_len=64, head_dim=128, name="pwn_conv"):
+    layer = PointWiseNet(seq_len, head_dim, 4 * head_dim, head_dim)
+    dummy_input = torch.ones([1, head_dim, 1, seq_len])
+
+    pytorch2caffe.trans_net(layer, dummy_input, name)
+    pytorch2caffe.save_prototxt('{}.prototxt'.format(name))
+    pytorch2caffe.save_caffemodel('{}.caffemodel'.format(name))
+
+
 if __name__ == "__main__":
-    convert_qkv_nets()
+    # convert_fc_with_conv(seq_len=128, head_dim=64, name="QNet_B1_L128_HD64")
+    # convert_fc_with_conv(seq_len=128, head_dim=64, name="KNet_B1_L128_HD64")
+    # convert_fc_with_conv(seq_len=128, head_dim=64, name="VNet_B1_L128_HD64")
+
+    convert_double_matmul_with_conv(seq_len=128, head_dim=64, name="QKTV_B1_L128_HD64")
+
+    # convert_point_wise_feed_forward_with_conv(seq_len=128, head_dim=64, name="PWN_B1_L128_HD64")
+
+    # there is still skip connection, will do it after concatenating all the .txn files
