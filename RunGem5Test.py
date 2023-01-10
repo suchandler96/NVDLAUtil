@@ -26,12 +26,12 @@ if __name__ == '__main__':
         words = tests[i].split()
         idx_of_d = words.index("-d")
         if not os.path.exists(words[idx_of_d + 1]):
-            os.mkdir(words[idx_of_d + 1])
+            os.makedirs(words[idx_of_d + 1])
         if "tee" not in tests[i]:
             tests[i] += " | tee " + words[idx_of_d + 1] + "/system.log"
 
     # print(tests)
-    pool = Pool(12)
+    pool = Pool(18)
     print(len(tests))
     for i in range(len(tests)):
         pool.apply_async(run_test, args=(i, tests))

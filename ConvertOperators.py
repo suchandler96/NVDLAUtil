@@ -47,7 +47,7 @@ class PointWiseNet(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        return self.conv2(self.relu(self.conv1(x)))
+        return self.conv2(self.relu(self.conv1(x))) + x
 
 
 def convert_fc_with_conv(seq_len=64, head_dim=128, name="fc_layer_conv"):

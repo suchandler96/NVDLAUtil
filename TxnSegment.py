@@ -1,12 +1,12 @@
 import re
 
 pivot_addr_reg_name_list = ["0x5034", "0xb048", "0xc01c"]
-addr_reg_list = [0x5034, 0x503c, 0x507c, 0xa02c, 0xa044, 0xb048, 0xc01c, 0xd070]
+addr_reg_list = [0x5034, 0x503c, 0x507c, 0xa018, 0xa02c, 0xa044, 0xb048, 0xc01c, 0xd070]
 corr_map_table = {0x5000: [0x5000, 0x6000], 0xb000: [0xa000, 0xb000], 0xc000: [0xc000, 0xd000]}
 
-data_addr_regs = [0x5034, 0xa044, 0xb048, 0xc01c, 0xd070]
+data_addr_regs = [0x5034, 0xa018, 0xa044, 0xb048, 0xc01c, 0xd070]
 weight_addr_regs = [0x507c, 0xa02c]
-input_addr_regs = [0x5034, 0x507c, 0xa02c, 0xa044, 0xc01c]
+input_addr_regs = [0x5034, 0x507c, 0xa018, 0xa02c, 0xa044, 0xc01c]
 # omitting 0x503c because we assume it will always be the same as 0x5034
 
 output_addr_regs = [0xb048, 0xd070]
@@ -48,13 +48,18 @@ class TxnAddrDesc:
             for key, value in segment_ptr.addr_reg_mapping.items():
                 if value == self.addr:
                     if key in data_addr_regs:
-                        assert ((not self.is_weight) or (self.is_weight is None))
+                        assert ((not self.is_weight) or (self.is_weight is None) or (key == 0xa02c))
                         self.is_weight = False
                         self.io_type = 0
 
                     if key in weight_addr_regs:
-                        assert (self.is_weight or (self.is_weight is None))
-                        self.is_weight = True
+                        # print(hex(self.addr) + ": " + self.txn_seg_ptrs[0].desc_str())
+                        # 0xa02c is quite special, as it can be used as both data and bias (weight)
+                        assert (self.is_weight or (self.is_weight is None) or (key == 0xa02c))
+                        if key == 0xa02c:
+                            pass
+                        else:
+                            self.is_weight = True
 
 
 def expand_line_range(txn_words, pivot_line_idx, txn_seg):

@@ -272,6 +272,129 @@ def output_rd_only_var_log(options, txn_addr_book_list, raw_addr_log_list, sugge
                 fp.write((rd_var_log[j][1]).to_bytes(4, byteorder="little", signed=False))
 
 
+# input a list of attributes of all txn files
+# not for pipeline!!!
+# used for mapping and duplicating .txn for transformer,
+# so currently we hard-code the number of duplicates to 4
+def concat_txn(options, txn_addr_book_list):
+    """ first get all the constraints """
+    with open(options.constraint_file, "r") as fp:
+        constraint_lines = fp.readlines()
+        # constraint line format:
+        # file_name, addr, file_name, addr (to indicate they should be mapped to the same place)
+
+    constraint_lookup = {}
+    constraints = []
+
+    # view the first time to make sure nothing goes wrong in naming conventions
+    naming_conventions = {}
+    for line in constraint_lines:
+        words = line.strip().split()
+        for i, word in enumerate(words):
+            if i % 2 == 1:
+                continue
+
+            for j, target in enumerate(options.src_dirs):
+                if word in target:
+                    if word in naming_conventions:
+                        assert naming_conventions[word] == j
+                    else:
+                        naming_conventions[word] = j
+                    break
+
+    # view the second time to record the constraints
+    for line in constraint_lines:
+        words = line.strip().split()
+        constraint = []     # a list of (file_id, addr) tuples to indicate they should be mapped to the same place
+        for i in range(0, len(words), 2):
+            file_id = naming_conventions[words[i]]
+            addr = int(words[i + 1], 16)
+            constraint.append((file_id, addr))
+
+        constraint_tuple = [constraint, False]      # False means not mapped yet
+
+        for constraint_item in constraint:
+            constraint_lookup[constraint_item] = constraint_tuple
+
+        constraints.append(constraint_tuple)
+
+    """ then use the constraints to list all the vars that need to be assigned to an address"""
+    # first register the matching info in addr_desc
+    for file_id, txn_addr_book in enumerate(txn_addr_book_list):
+        for addr, addr_desc in txn_addr_book.items():
+            lookup_constraint_item = (file_id, addr)
+            if lookup_constraint_item in constraint_lookup:
+                constraint = constraint_lookup[lookup_constraint_item][0]
+                for constraint_file_id, constraint_addr in constraint:
+                    if constraint_file_id == file_id and constraint_addr == addr:
+                        continue    # do not register the desc itself
+                    addr_desc.peer_desc_list.append(txn_addr_book_list[constraint_file_id][constraint_addr])
+
+    # then prepare the list to be sorted (and will assign addresses to variables according to this list)
+    to_sort_addr_list = []
+    for file_id, txn_addr_book in enumerate(txn_addr_book_list):
+        for addr, addr_desc in txn_addr_book.items():
+            lookup_constraint_item = (file_id, addr)
+
+            if lookup_constraint_item in constraint_lookup:
+                if not constraint_lookup[lookup_constraint_item][1]:
+                    # set the flag for mapped to true
+                    constraint_lookup[lookup_constraint_item][1] = True
+                    to_sort_addr_list.append((lookup_constraint_item, addr_desc))
+
+            else:
+                to_sort_addr_list.append((lookup_constraint_item, addr_desc))
+
+    to_sort_addr_list.sort(key=lambda x: x[1].length, reverse=True)
+
+    """ then assign space for variables"""
+    to_assign_addr = 0x80000000
+    for sorted_item, addr_desc in to_sort_addr_list:
+
+        if addr_desc.suggested_match_addr is None:
+            new_to_assign_addr = to_assign_addr + (((addr_desc.length - 0x40) & 0x1000) + 0x1000) * 4
+            addr_desc.suggested_match_addr = to_assign_addr
+
+            for peer_desc in addr_desc.peer_desc_list:
+                assert peer_desc.suggested_match_addr is None
+                peer_desc.suggested_match_addr = to_assign_addr
+
+            to_assign_addr = new_to_assign_addr
+
+    print("next to_assign_addr = ", hex(to_assign_addr))
+
+    """ Then we begin concatenating the .txn files """
+    for to_write_file_id in range(4):
+        write_fp = open("Transformer_worker_" + str(to_write_file_id) + ".txn", "w")
+
+        for i in range(len(options.src_dirs)):
+            write_fp.write("# " + options.src_dirs[i] + "\n")
+            txn_path = os.popen("ls " + os.path.join(options.src_dirs[i], "*_raw_input.txn")).read().strip()
+            with open(txn_path, "r") as read_fp:
+                txn_lines = read_fp.readlines()
+
+            new_lines = []
+            for line in txn_lines:
+                if "write_reg" in line:
+                    stripped_line = line.strip()
+                    tmp_words = re.split(r'[ \t\s]\s*', stripped_line)
+                    tmp_words[-1] = tmp_words[-1].strip('#')
+
+                    if int(tmp_words[-1], 16) in addr_reg_list:
+                        addr = int(tmp_words[-2], 16)
+                        assert addr in txn_addr_book_list[i]
+                        addr_desc = txn_addr_book_list[i][addr]
+                        rounded_size = ((addr_desc.length - 0x40) & 0x1000) + 0x1000
+                        new_lines.append(line.replace(tmp_words[-2], str(hex(addr_desc.suggested_match_addr + to_write_file_id * rounded_size))))
+                        continue
+
+                new_lines.append(line)
+
+            write_fp.writelines(new_lines)
+            write_fp.write("\n\n\n\nreset\n\n\n\n")
+        write_fp.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="GetAddrAttrAndMatch.py options")
     parser.add_argument("--src-dirs", type=str, metavar="dir", nargs='+',
@@ -289,8 +412,14 @@ def main():
                         help="to output the mapped addresses to a new txn file under the original directories")
     parser.add_argument("--output-rd-only-var-log", action="store_true", default=False,
                         help="to output read-only variables together with lengths, ranked by their time of issue")
+
+    parser.add_argument("--concat-txn", action="store_true", default=False,
+                        help="remap each component of Transformer model to a whole")
+    parser.add_argument("--constraint-file", type=str, default="", help="path to constraint file for remapping variables")
+    # currently we hard-code the number of duplicates to 4
+
     # todo: life cycle analysis of variables (if analyzing all variables is too difficult, at least read-only)
-    # todo: remap all variables
+    # todo: remap all variables for pipelining
     # todo: modify NVDLA compiler, disable some options (addr reuse, operator fusion, ...)
     options = parser.parse_args()
 
@@ -299,6 +428,7 @@ def main():
     raw_addr_log_list = []
     sorted_addr_list = []
 
+    # the loop operate on each testcase independently and don't make assumptions on the relation between testcases
     for i in range(len(options.src_dirs)):
         txn_path = os.popen("ls " + os.path.join(options.src_dirs[i], "*_raw_input.txn")).read().strip()
         mem_trace_path = os.path.join(options.src_dirs[i], "VP_mem_rd_wr")
@@ -319,16 +449,20 @@ def main():
         raw_addr_log_list.append(raw_addr_log)
         sorted_addr_list.append(sorted_addr)
 
-    if options.match_pipeline_stages:
-        match_pipeline_stages(txn_addr_book_list[1:], txn_addr_book_list[0], (sorted_addr_list[0][-1] & 0x1000) + 0x1000)
+    if not options.concat_txn:
+        if options.match_pipeline_stages:
+            match_pipeline_stages(txn_addr_book_list[1:], txn_addr_book_list[0], (sorted_addr_list[0][-1] & 0x1000) + 0x1000)
 
-    suggested_addr_mappings = generate_addr_mappings(options, txn_addr_book_list)
+        suggested_addr_mappings = generate_addr_mappings(options, txn_addr_book_list)
 
-    if options.output_result_txn:
-        output_result_txn(options, suggested_addr_mappings)
+        if options.output_result_txn:
+            output_result_txn(options, suggested_addr_mappings)
 
-    if options.output_rd_only_var_log:
-        output_rd_only_var_log(options, txn_addr_book_list, raw_addr_log_list, suggested_addr_mappings)
+        if options.output_rd_only_var_log:
+            output_rd_only_var_log(options, txn_addr_book_list, raw_addr_log_list, suggested_addr_mappings)
+    else:
+        assert options.constraint_file != ""
+        concat_txn(options, txn_addr_book_list)
 
 
 if __name__ == "__main__":
