@@ -31,7 +31,7 @@ if __name__ == '__main__':
             tests[i] += " | tee " + words[idx_of_d + 1] + "/system.log"
 
     # print(tests)
-    pool = Pool(18)
+    pool = Pool(24)
     print(len(tests))
     for i in range(len(tests)):
         pool.apply_async(run_test, args=(i, tests))
